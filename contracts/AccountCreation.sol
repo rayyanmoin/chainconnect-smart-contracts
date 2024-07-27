@@ -5,7 +5,7 @@ pragma solidity 0.8.26;
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Account is ERC721Enumerable {
+contract AccountCreation is ERC721Enumerable {
     struct UserInfo {
         string userName;
         string displayName;
