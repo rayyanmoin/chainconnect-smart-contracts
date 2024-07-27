@@ -1,32 +1,111 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity 0.8.26;
 
-contract AccountCreation {
-    struct UserData {
-        string username;
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Account is ERC721Enumerable {
+    struct UserInfo {
+        string userName;
         string displayName;
-        string imageHash;
         string bio;
+        string image;
+    }
+    // Mapping from user address to user info, only displayName and Bio updatable
+    mapping(address => UserInfo) public userInfo;
+
+    // Mapping from address to username
+    mapping(address => string) public userName;
+
+    // Mapping if certain name string has already been reserved
+    mapping(string => bool) private _nameReserved;
+
+    // event AccountCreated(string newName);
+    // event BioChange(string bio);
+    event PostCreated(
+        uint id,
+        address sender,
+        string uri,
+        uint8 buyStatus,
+        uint256 sellValue,
+        string metadata
+    );
+    event InfoChanged(string displayName, string bio, string image);
+    event AccountCreated(
+        address user,
+        string userName,
+        string displayName,
+        string bio,
+        string image
+    );
+    event PostDetailsChanged(
+        uint256 postId,
+        uint8 status,
+        uint256 price,
+        uint256 bidDuration
+    );
+    event PostRewardClaimed(address user, uint256 postId, uint256 reward);
+    event BiddableTokenPurchased(
+        address oldOwner,
+        address newOwner,
+        uint256 amount,
+        uint256 id
+    );
+    event BidPlaced(address bidder, uint256 postId, uint256 bidAmount);
+    event PostSold(address from, address to, uint256 amount, uint256 id);
+
+    constructor(
+        string memory _name,
+        string memory _symbol
+    ) ERC721(_name, _symbol) {}
+
+    function updateUserInfo(UserInfo memory _userInfo) external {
+        address user = msg.sender;
+        require(bytes(userName[user]).length != 0, "Undefined user");
+        require(
+            keccak256(abi.encodePacked(userInfo[user].userName)) ==
+                keccak256(abi.encodePacked(_userInfo.userName)),
+            "Username must be unique"
+        );
+        userInfo[user] = _userInfo;
+        emit InfoChanged(_userInfo.displayName, _userInfo.bio, _userInfo.image);
     }
 
-    mapping(address => UserData) user;
-    mapping(string => bool) existsUser;
+    function createAccount(UserInfo memory _userInfo) public virtual {
+        address user = msg.sender;
+        require(bytes(userName[user]).length == 0, "Account already created");
 
-    function createAccount(UserData memory userInfo) external {
-        require(!validateName(userInfo.username), "Invalid");
-        require(existsUser[toLower(userInfo.username)], "username exists");
-        existsUser[toLower(userInfo.username)] = true;
-        user[msg.sender] = userInfo;
+        require(validateName(_userInfo.userName), "Not a valid new name");
+        require(!isNameReserved(_userInfo.userName), "Username already exists");
+        _nameReserved[toLower(_userInfo.userName)] = true;
+        userInfo[user] = _userInfo;
+
+        userName[user] = _userInfo.userName;
+        emit AccountCreated(
+            user,
+            _userInfo.userName,
+            _userInfo.displayName,
+            _userInfo.bio,
+            _userInfo.image
+        );
     }
 
-    function updateAccount(UserData memory userInfo) external {
-        require(!validateName(userInfo.username), "Invalid");
-        require(!existsUser[toLower(userInfo.username)], "username exists");
-        existsUser[toLower(userInfo.username)] = true;
-        existsUser[toLower(user[msg.sender].username)] = false;
-
-        user[msg.sender] = userInfo;
+    /**
+     * @dev Returns if the name has been reserved.
+     */
+    function isNameReserved(
+        string memory nameString
+    ) public view returns (bool) {
+        return _nameReserved[toLower(nameString)];
     }
+
+    function isAddressReserved(
+        address _address
+    ) public view returns (string memory) {
+        return userName[_address];
+    }
+
     function validateName(string memory str) public pure returns (bool) {
         bytes memory b = bytes(str);
         if (b.length < 1) return false;
