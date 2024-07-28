@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 error NoPriceForNFS(string status, uint256 price);
 error NoBidForBuy(string status, uint256 bidDuration);
+error NoDurationBid();
 error NoData();
 
 contract ChainConnect is AccountCreation {
@@ -17,10 +18,18 @@ contract ChainConnect is AccountCreation {
         string uri;
         uint8 buyStatus;
     }
-    // uint tokenId dekar Post lelin.
+
+    struct LastBidInfo{
+        address lastBidder;
+        uint price;
+    }
+    // Token Id to lastBidInfo.
+    mapping(uint => LastBidInfo) private lastBidInfo;
+
+    //  tokenId to Post .
     mapping(uint => Post) private post;
     mapping(uint => string) private _tokenURIs;
-    // tokenID dekar user ka Address lelin.
+    // tokenID to user's Address.
     mapping(uint => address) public idToOwner;
     uint public tokenId = 1;
     uint public ONE = 1 ether;
@@ -112,17 +121,45 @@ contract ChainConnect is AccountCreation {
 
             revert NoBidForBuy("No Duration", _bidDuration);
         }
-        if (_status == 1 && _bidDuration > 0) {
-            revert NoBidForBuy("No Duration", _bidDuration);
+        if (_status == 3 && _bidDuration < 1) {
+            revert NoDurationBid();
         }
 
         _safeMint(msg.sender, tokenId);
         _setTokenURI(tokenId, _tokenURI);
         idToOwner[tokenId] = msg.sender;
 
-        post[tokenId] = Post(_price, _bidDuration, _tokenURI, _status);
+        post[tokenId] = Post(_price, block.timestamp+_bidDuration, _tokenURI, _status);
 
 
         tokenId++;
     }
+
+    function buyPost(uint _postId)external payable{
+        
+        require(_postId >= 0 && _postId <= tokenId,"Invalid tokenID");
+        require(post[_postId].price >= msg.value,"Invalid Price");
+        require(post[_postId].status == 1,"Invalid Status");
+
+        (bool sent,) = idToOwner[_postId].call{value:msg.value}("");
+        require(sent,"Not sent" );
+        _transfer(idToOwner[_postId],msg.sender,_postId);
+        idToOwner[_postId] = msg.sender;
+
+    }
+
+    function bid(uint _postId)external payable{
+        require(_postId >= 0 && _postId <= tokenId,"Invalid tokenID");
+        require(post[_postId].price >= msg.value,"Invalid Price");
+        require(post[_postId].status == 3,"Invalid Status");
+
+        require(block.timestamp <=  post[_postId].bidDuration,"bid passed");
+        require(msg.sender != lastBidInfo[_postId].lastbidder,"Already Bid");
+        
+        (bool sent,) = lastBidInfo[_postId].lastBidder.call{value:lastBidInfo[_postId].price}("");
+        require(sent,"not sent");
+        lastBidInfo[_postId] = LastBidInfo(msg.sender,msg.value);
+
+    }
+
 }
