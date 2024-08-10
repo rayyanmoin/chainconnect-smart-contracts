@@ -19,7 +19,7 @@ contract ChainConnect is AccountCreation {
         uint8 buyStatus;
     }
 
-    struct LastBidInfo{
+    struct LastBidInfo {
         address lastBidder;
         uint price;
     }
@@ -63,7 +63,7 @@ contract ChainConnect is AccountCreation {
         uint256 _tokenId
     ) public view virtual override returns (string memory) {
         require(
-             _tokenId <= tokenId,
+            _tokenId <= tokenId,
             "ERC721URIStorage: URI query for nonexistent token"
         );
 
@@ -101,6 +101,68 @@ contract ChainConnect is AccountCreation {
         _tokenURIs[tokenId] = _tokenURI;
     }
 
+    function buyPost(uint _postId) external payable {
+        require(_postId >= 0 && _postId <= tokenId, "Invalid tokenID");
+        require(post[_postId].price >= msg.value, "Invalid Price");
+        require(post[_postId].status == 1, "Invalid Status");
+
+        (bool sent, ) = idToOwner[_postId].call{value: msg.value}("");
+        require(sent, "Not sent");
+        _transfer(idToOwner[_postId], msg.sender, _postId);
+        idToOwner[_postId] = msg.sender;
+    }
+
+    function bid(uint _postId) external payable {
+        require(_postId >= 0 && _postId <= tokenId, "Invalid tokenID");
+        require(post[_postId].price >= msg.value, "Invalid Price");
+        require(post[_postId].status == 3, "Invalid Status");
+
+        require(block.timestamp <= post[_postId].bidDuration, "bid passed");
+        require(msg.sender != lastBidInfo[_postId].lastbidder, "Already Bid");
+
+        (bool sent, ) = lastBidInfo[_postId].lastBidder.call{
+            value: lastBidInfo[_postId].price
+        }("");
+        require(sent, "not sent");
+        lastBidInfo[_postId] = LastBidInfo(msg.sender, msg.value);
+    }
+
+    function changePost(
+        uint _postId,
+        uint256 _sellValue,
+        uint256 _bidDuration,
+        string _uri,
+        uint8 _buyStatus
+    ) external {
+        // changing Post
+        // check max > _tokenId not < 0
+        // tokenId --> owner == msg.sender
+        //  status != NFS && price > 0
+        //  Status change from bid to NFT or buy , return bid amount
+        //  0 >- staus >- 3
+        // if status == 2 then price > 0 (price != 0)
+
+        require(_postId >= 0 && _postId <= _tokenId, "Invalid tokenID");
+        require(0 <= _buyStatus < 4, "stauts Incorrect");
+        require(idToOwner[_postId] == _msgSender(), "invalid Owner");
+
+        if (_buyStatus == 2) {
+            require(_sellValue == 0, "No price for NFS");
+        }
+        if (_buyStatus == 3 && lastBidInfo[_postId].price > 0) {
+            require(_sellValue > lastBidInfo[_postId].price, "Price Missmatch");
+        } 
+        if (_buyStatus == 1) {
+            require(_sellValue > 0, "buyable > 0");
+        }
+
+        post[_postId] = Post(_sellValue,
+         block.timestamp + _bidDuration,
+         _uri,
+         _buyStatus);
+
+    }
+
     function mint(
         uint256 _bidDuration,
         uint8 _status,
@@ -108,17 +170,15 @@ contract ChainConnect is AccountCreation {
         string calldata _metadata,
         string memory _tokenURI
     ) external {
-        bytes memory b  = bytes(_tokenURI);
+        bytes memory b = bytes(_tokenURI);
 
-        if (b.length == 0){
+        if (b.length == 0) {
             revert NoData();
         }
         if (_status == 2 && _price > 0) {
-            revert NoPriceForNFS("Not For Sale",_price);
+            revert NoPriceForNFS("Not For Sale", _price);
         }
         if (_status == 1 && _bidDuration > 0) {
-
-
             revert NoBidForBuy("No Duration", _bidDuration);
         }
         if (_status == 3 && _bidDuration < 1) {
@@ -129,37 +189,13 @@ contract ChainConnect is AccountCreation {
         _setTokenURI(tokenId, _tokenURI);
         idToOwner[tokenId] = msg.sender;
 
-        post[tokenId] = Post(_price, block.timestamp+_bidDuration, _tokenURI, _status);
-
+        post[tokenId] = Post(
+            _price,
+            block.timestamp + _bidDuration,
+            _tokenURI,
+            _status
+        );
 
         tokenId++;
     }
-
-    function buyPost(uint _postId)external payable{
-        
-        require(_postId >= 0 && _postId <= tokenId,"Invalid tokenID");
-        require(post[_postId].price >= msg.value,"Invalid Price");
-        require(post[_postId].status == 1,"Invalid Status");
-
-        (bool sent,) = idToOwner[_postId].call{value:msg.value}("");
-        require(sent,"Not sent" );
-        _transfer(idToOwner[_postId],msg.sender,_postId);
-        idToOwner[_postId] = msg.sender;
-
-    }
-
-    function bid(uint _postId)external payable{
-        require(_postId >= 0 && _postId <= tokenId,"Invalid tokenID");
-        require(post[_postId].price >= msg.value,"Invalid Price");
-        require(post[_postId].status == 3,"Invalid Status");
-
-        require(block.timestamp <=  post[_postId].bidDuration,"bid passed");
-        require(msg.sender != lastBidInfo[_postId].lastbidder,"Already Bid");
-        
-        (bool sent,) = lastBidInfo[_postId].lastBidder.call{value:lastBidInfo[_postId].price}("");
-        require(sent,"not sent");
-        lastBidInfo[_postId] = LastBidInfo(msg.sender,msg.value);
-
-    }
-
 }
