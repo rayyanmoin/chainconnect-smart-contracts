@@ -3,13 +3,15 @@
 pragma solidity 0.8.26;
 import "./AccountCreation.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "./IERC20.sol";
+import "./Verification.sol";
 
 error NoPriceForNFS(string status, uint256 price);
 error NoBidForBuy(string status, uint256 bidDuration);
 error NoDurationBid();
 error NoData();
 
-contract ChainConnect is AccountCreation {
+contract ChainConnect is AccountCreation,Verification {
     using Strings for uint256;
 
     struct Post {
@@ -31,10 +33,17 @@ contract ChainConnect is AccountCreation {
     mapping(uint => string) private _tokenURIs;
     // tokenID to user's Address.
     mapping(uint => address) public idToOwner;
+
+    mapping(uint => uint) public idToLikes;
+
     uint public tokenId = 1;
     uint public ONE = 1 ether;
 
     address public owner;
+    uint public rewardFactor;
+    IERC20 public rewardToken;
+
+    uint private _claimId;
 
     /**
     1 -> Buyable
@@ -45,9 +54,13 @@ contract ChainConnect is AccountCreation {
     constructor(
         string memory _name,
         string memory _symbol,
-        address _owner
+        address _owner,
+        IERC20 _rewardToken
+
     ) AccountCreation(_name, _symbol) {
         owner = _owner;
+        rewardToken = _rewardToken;
+
     }
 
     modifier onlyOwner() {
@@ -81,8 +94,9 @@ contract ChainConnect is AccountCreation {
 
         return super.tokenURI(_tokenId);
     }
-    //setter functions
 
+
+    //setter functions
     /**
      * @dev Sets `_tokenURI` as the tokenURI of `_tokenId`.
      *
@@ -103,22 +117,22 @@ contract ChainConnect is AccountCreation {
 
     function buyPost(uint _postId) external payable {
         require(_postId >= 0 && _postId <= tokenId, "Invalid tokenID");
-        require(post[_postId].price >= msg.value, "Invalid Price");
-        require(post[_postId].status == 1, "Invalid Status");
+        require(post[_postId].sellValue >= msg.value, "Invalid Price");
+        require(post[_postId].buyStatus == 1, "Invalid Status");
 
         (bool sent, ) = idToOwner[_postId].call{value: msg.value}("");
         require(sent, "Not sent");
-        _transfer(idToOwner[_postId], msg.sender, _postId);
         idToOwner[_postId] = msg.sender;
+        _transfer(idToOwner[_postId], msg.sender, _postId);
     }
 
     function bid(uint _postId) external payable {
         require(_postId >= 0 && _postId <= tokenId, "Invalid tokenID");
-        require(post[_postId].price >= msg.value, "Invalid Price");
-        require(post[_postId].status == 3, "Invalid Status");
+        require(post[_postId].sellValue >= msg.value, "Invalid Price");
+        require(post[_postId].buyStatus == 3, "Invalid Status");
 
         require(block.timestamp <= post[_postId].bidDuration, "bid passed");
-        require(msg.sender != lastBidInfo[_postId].lastbidder, "Already Bid");
+        require(msg.sender != lastBidInfo[_postId].lastBidder, "Already Bid");
 
         (bool sent, ) = lastBidInfo[_postId].lastBidder.call{
             value: lastBidInfo[_postId].price
@@ -131,7 +145,7 @@ contract ChainConnect is AccountCreation {
         uint _postId,
         uint256 _sellValue,
         uint256 _bidDuration,
-        string _uri,
+        string memory _uri,
         uint8 _buyStatus
     ) external {
         // changing Post
@@ -142,8 +156,8 @@ contract ChainConnect is AccountCreation {
         //  0 >- staus >- 3
         // if status == 2 then price > 0 (price != 0)
 
-        require(_postId >= 0 && _postId <= _tokenId, "Invalid tokenID");
-        require(0 <= _buyStatus < 4, "stauts Incorrect");
+        require(_postId >= 0 && _postId <= tokenId, "Invalid tokenID");
+        require(uint8(0) <= _buyStatus && _buyStatus < uint8(4), "stauts Incorrect");
         require(idToOwner[_postId] == _msgSender(), "invalid Owner");
 
         if (_buyStatus == 2) {
@@ -161,6 +175,43 @@ contract ChainConnect is AccountCreation {
          _uri,
          _buyStatus);
 
+    }
+
+
+    function changeRewardFactor (uint _rewardFactor)  external onlyOwner {
+       rewardFactor = _rewardFactor;
+
+    }
+
+    function updateRewardToken(address _rewardToken) external onlyOwner {
+        require(_rewardToken == address(0),"Zero address");
+        rewardToken = IERC20(_rewardToken);
+
+    }
+
+
+    function calculateReward(uint _likes, uint _postId) public view returns (uint256){
+
+        uint rest = _likes - idToLikes[_postId];
+        return (rest * rewardFactor) / 100;
+
+    }
+
+    function claimReward(uint _postId, uint256 _likeCount, bytes memory signature) external {
+        // msg.sender should be the owner of the post.
+        // valid post Id
+        // signature verification for double claim
+        
+        // calculate reward of pending likes
+        // update likes mapping 
+       
+        require(msg.sender == idToOwner[_postId],"False Owner");
+        require(_postId != 0 && tokenId <= _postId,"Invalid Post");
+        require(verify(msg.sender, _likeCount, _claimId, signature),"invalid Signature");
+
+        uint pendingReward = calculateReward(_likeCount,_postId);
+        idToLikes[_postId] = _likeCount;
+        rewardToken.mint(msg.sender, pendingReward);
     }
 
     function mint(
